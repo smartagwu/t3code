@@ -174,7 +174,11 @@ export function RightPanelSurfaceContent(props: {
     case "subagents":
       return (
         <Suspense fallback={null}>
-          <SubagentsPanel threadRef={threadRef} childThreadId={surface.childThreadId ?? null} />
+          <SubagentsPanel
+            threadRef={threadRef}
+            childThreadId={surface.childThreadId ?? null}
+            groupExpansion={surface.groupExpansion}
+          />
         </Suspense>
       );
     case "device":

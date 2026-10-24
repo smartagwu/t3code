@@ -48,11 +48,7 @@ function edgeKey(edge: ThreadRelationshipEdge): string {
 
 export function deriveThreadRelationshipGraph(input: {
   readonly threads: ReadonlyArray<OrchestrationV2ThreadShell>;
-  readonly projection: {
-    readonly thread: Pick<OrchestrationV2ThreadProjection["thread"], "id">;
-    readonly subagents: OrchestrationV2ThreadProjection["subagents"];
-    readonly contextTransfers: OrchestrationV2ThreadProjection["contextTransfers"];
-  } | null;
+  readonly projection: OrchestrationV2ThreadProjection | null;
 }): ThreadRelationshipGraph {
   const threadsById = new Map<ThreadId, OrchestrationV2ThreadShell>();
   for (const thread of input.threads) {

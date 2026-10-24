@@ -26,6 +26,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
+import type { SubagentParentSummary } from "@t3tools/client-runtime/state/thread-subagents";
 import { Atom } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentProjects } from "./projects";
@@ -446,4 +447,58 @@ export function useThreadRelationshipShells(
   ref: ScopedThreadRef,
 ): ReadonlyArray<OrchestrationV2ThreadShell> {
   return useAtomValue(relationshipShellsAtomFamily(threadKey(ref)));
+}
+
+export interface EnvironmentSubagentShells {
+  readonly children: ReadonlyArray<OrchestrationV2ThreadShell>;
+  readonly parents: ReadonlyArray<SubagentParentSummary>;
+}
+
+const EMPTY_SUBAGENT_SHELLS: EnvironmentSubagentShells = Object.freeze({
+  children: Object.freeze([]),
+  parents: Object.freeze([]),
+});
+
+/**
+ * Every sub agent's thread shell in the environment, and a summary of each parent. A parent
+ * streaming its own reply must not re-render the sub agent list, so parents carry only the
+ * fields the list reads and keep their objects while those are unchanged.
+ */
+const subagentShellsAtomFamily = Atom.family((environmentId: EnvironmentId) => {
+  let previous = EMPTY_SUBAGENT_SHELLS;
+  return Atom.make((get): EnvironmentSubagentShells => {
+    const threads = get(environmentThreadShells.environmentThreadsAtom(environmentId));
+    const children = threads.filter(
+      (thread) =>
+        thread.lineage.relationshipToParent === "subagent" &&
+        thread.lineage.parentThreadId !== null &&
+        thread.deletedAt === null,
+    );
+    const parentIds = new Set(children.map((thread) => thread.lineage.parentThreadId));
+    const parents: SubagentParentSummary[] = [];
+    for (const thread of threads) {
+      if (!parentIds.has(thread.id) || thread.deletedAt !== null) continue;
+      const archived = thread.archivedAt !== null;
+      const existing = previous.parents.find((parent) => parent.id === thread.id);
+      parents.push(
+        existing?.title === thread.title && existing.archived === archived
+          ? existing
+          : { id: thread.id, title: thread.title, archived },
+      );
+    }
+    if (
+      arrayElementsEqual(previous.children, children) &&
+      arrayElementsEqual(previous.parents, parents)
+    ) {
+      return previous;
+    }
+    previous = { children, parents };
+    return previous;
+  }).pipe(Atom.withLabel(`web-subagent-shells:${environmentId}`));
+});
+
+export function useEnvironmentSubagentShells(
+  environmentId: EnvironmentId,
+): EnvironmentSubagentShells {
+  return useAtomValue(subagentShellsAtomFamily(environmentId));
 }

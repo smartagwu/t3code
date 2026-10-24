@@ -1001,6 +1001,22 @@ describe("rightPanelStore", () => {
     expect(state().surfaces.map((surface) => surface.id)).toEqual(["diff", "subagents"]);
   });
 
+  it("keeps which sub agent groups the user opened or closed across sessions and reloads", async () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "subagents");
+    store.setSubagentGroupExpanded(refA, "thread-A", false);
+    store.setSubagentGroupExpanded(refA, "thread-B", true);
+    store.openSubagentSession(refA, "child-1");
+    useRightPanelStore.getState().openSubagentSession(refA, null);
+    await reloadRightPanelStore();
+
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      id: "subagents",
+      kind: "subagents",
+      groupExpansion: { "thread-A": false, "thread-B": true },
+    });
+  });
+
   it("tracks one surface per pull request", () => {
     const first = { projectId: "project-a", repository: "pingdotgg/t3code", number: 4909 };
     const second = { projectId: "project-a", repository: "pingdotgg/t3code", number: 4910 };

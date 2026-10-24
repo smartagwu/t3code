@@ -87,6 +87,8 @@ export type RightPanelSurface =
       kind: "subagents";
       /** The child thread whose session replaces the list; absent while the list shows. */
       childThreadId?: string;
+      /** Groups the user opened or closed against their default, by parent thread id. */
+      groupExpansion?: Record<string, boolean>;
     };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
@@ -175,6 +177,11 @@ interface RightPanelStoreState {
   ) => void;
   /** Shows a sub agent's session inside the Sub agents tab; null returns to the list. */
   openSubagentSession: (ref: ScopedThreadRef, childThreadId: string | null) => void;
+  setSubagentGroupExpanded: (
+    ref: ScopedThreadRef,
+    parentThreadId: string,
+    expanded: boolean,
+  ) => void;
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
@@ -499,12 +506,18 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                       return [{ ...surface, revealLine, revealRequestId }];
                     }
                     if (surface.kind === "subagents") {
-                      const { childThreadId, ...rest } = surface;
+                      const { childThreadId, groupExpansion, ...rest } = surface;
+                      const expansion = Object.entries(groupExpansion ?? {}).filter(
+                        (entry): entry is [string, boolean] => typeof entry[1] === "boolean",
+                      );
                       return [
                         {
                           ...rest,
                           ...(typeof childThreadId === "string" && childThreadId.length > 0
                             ? { childThreadId }
+                            : {}),
+                          ...(expansion.length > 0
+                            ? { groupExpansion: Object.fromEntries(expansion) }
                             : {}),
                         },
                       ];
@@ -765,18 +778,39 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       openSubagentSession: (ref, childThreadId) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
+            const existing = current.surfaces.find((entry) => entry.kind === "subagents");
+            const { childThreadId: _previous, ...kept } = existing ?? {
+              id: "subagents" as const,
+              kind: "subagents" as const,
+            };
             const surface: RightPanelSurface = {
-              id: "subagents",
-              kind: "subagents",
+              ...kept,
               ...(childThreadId === null ? {} : { childThreadId }),
             };
             return {
               ...current,
               isOpen: true,
               activeSurfaceId: surface.id,
-              surfaces: current.surfaces.some((entry) => entry.id === surface.id)
-                ? current.surfaces.map((entry) => (entry.id === surface.id ? surface : entry))
+              surfaces: existing
+                ? current.surfaces.map((entry) => (entry === existing ? surface : entry))
                 : [...current.surfaces, surface],
+            };
+          }),
+        ),
+      setSubagentGroupExpanded: (ref, parentThreadId, expanded) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) => {
+            const existing = current.surfaces.find((entry) => entry.kind === "subagents");
+            if (existing === undefined || existing.groupExpansion?.[parentThreadId] === expanded) {
+              return current;
+            }
+            const surface: RightPanelSurface = {
+              ...existing,
+              groupExpansion: { ...existing.groupExpansion, [parentThreadId]: expanded },
+            };
+            return {
+              ...current,
+              surfaces: current.surfaces.map((entry) => (entry === existing ? surface : entry)),
             };
           }),
         ),
