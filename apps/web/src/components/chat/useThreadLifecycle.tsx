@@ -106,6 +106,8 @@ interface ThreadLifecycleInput {
     runtimeMode: RuntimeMode;
     interactionMode: ProviderInteractionMode;
   }) => Promise<AtomCommandResult<void, unknown>>;
+  /** Shows a related thread somewhere other than the main view. */
+  readonly openRelatedThread: ((threadId: ThreadId) => void) | undefined;
 }
 
 /**
@@ -147,6 +149,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     scheduleComposerFocus,
     scrollToEnd,
     persistThreadSettingsForNextTurn,
+    openRelatedThread,
   } = input;
   const navigate = useNavigate();
   const router = useRouter();
@@ -433,6 +436,10 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     const shell = readThreadShell(threadRef);
     if (shell === null ? isEnvironmentLive() : shell.deletedAt != null) {
       toastManager.add({ type: "info", title: "This thread is no longer available" });
+      return;
+    }
+    if (openRelatedThread !== undefined) {
+      openRelatedThread(threadId);
       return;
     }
     void navigate({

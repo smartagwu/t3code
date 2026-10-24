@@ -975,6 +975,48 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("keeps a sub agent's session in the one Sub agents tab and returns to the list", async () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "diff");
+    store.openSubagentSession(refA, "child-1");
+    store.openSubagentSession(refA, "child-2");
+
+    const state = () =>
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state().surfaces.map((surface) => surface.id)).toEqual(["diff", "subagents"]);
+    expect(state().activeSurfaceId).toBe("subagents");
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      id: "subagents",
+      kind: "subagents",
+      childThreadId: "child-2",
+    });
+
+    await reloadRightPanelStore();
+    expect(state().surfaces.at(-1)).toMatchObject({ kind: "subagents", childThreadId: "child-2" });
+
+    useRightPanelStore.getState().openSubagentSession(refA, null);
+    expect(state().surfaces.at(-1)).toEqual({ id: "subagents", kind: "subagents" });
+
+    useRightPanelStore.getState().open(refA, "subagents");
+    expect(state().surfaces.map((surface) => surface.id)).toEqual(["diff", "subagents"]);
+  });
+
+  it("keeps which sub agent groups the user opened or closed across sessions and reloads", async () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "subagents");
+    store.setSubagentGroupExpanded(refA, "thread-A", false);
+    store.setSubagentGroupExpanded(refA, "thread-B", true);
+    store.openSubagentSession(refA, "child-1");
+    useRightPanelStore.getState().openSubagentSession(refA, null);
+    await reloadRightPanelStore();
+
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      id: "subagents",
+      kind: "subagents",
+      groupExpansion: { "thread-A": false, "thread-B": true },
+    });
+  });
+
   it("tracks one surface per pull request", () => {
     const first = { projectId: "project-a", repository: "pingdotgg/t3code", number: 4909 };
     const second = { projectId: "project-a", repository: "pingdotgg/t3code", number: 4910 };
