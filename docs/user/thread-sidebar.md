@@ -220,12 +220,13 @@ the snooze. Enable **Snooze limited threads** in thread behavior settings to
 snooze limit stops by default. Providers without a reset time offer manual
 retry and the normal snooze choices.
 
-On web and desktop, use **Agents** to follow work delegated to subagents.
-Stop on a thread also stops the subagents it delegated to.
+On web and desktop, choose **Sub agents** from the right panel's **+** menu or the command
+palette to follow work delegated to subagents, working or finished. Choose one to open its session
+in the panel while the thread stays open. Stop on a thread also stops the subagents it delegated to.
 
-Subagent threads started by the agent can't take messages; message the parent
-thread instead. When such a subagent needs an approval or an answer, the parent
-thread asks for it.
+You can message a sub agent T3 Code started for the agent from its session. Subagents a provider
+runs natively can't take messages; message the parent thread instead. When such a subagent needs an
+approval or an answer, the parent thread asks for it.
 
 Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it

@@ -6,10 +6,15 @@ import {
   RunId,
   ThreadId,
   type OrchestrationV2Subagent,
+  type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-import { deriveThreadTurnSubagents, resolveSubagentPillSegment } from "./threadSubagents.ts";
+import {
+  deriveThreadSubagentRows,
+  deriveThreadTurnSubagents,
+  resolveSubagentPillSegment,
+} from "./threadSubagents.ts";
 
 const at = (iso: string) => DateTime.makeUnsafe(iso);
 
@@ -181,5 +186,181 @@ describe("deriveThreadTurnSubagents", () => {
     expect(turn?.liveCount).toBe(1);
     expect(turn?.settledCount).toBe(1);
     expect(turn?.subagents).toHaveLength(3);
+  });
+});
+
+describe("deriveThreadSubagentRows", () => {
+  const parentId = ThreadId.make("thread-1");
+
+  function childShell(
+    id: string,
+    overrides: Partial<Record<string, unknown>> = {},
+  ): OrchestrationV2ThreadShell {
+    return {
+      id: ThreadId.make(id),
+      title: `Title of ${id}`,
+      status: "completed",
+      activityRunStatus: null,
+      latestRunId: "run-child",
+      deletedAt: null,
+      createdAt: at("2026-06-20T00:00:00.000Z"),
+      forkedFrom: null,
+      lineage: {
+        parentThreadId: parentId,
+        relationshipToParent: "subagent",
+        rootThreadId: parentId,
+      },
+      ...overrides,
+    } as never;
+  }
+
+  it("lists working sub agents before finished ones, newest first", () => {
+    const rows = deriveThreadSubagentRows({
+      threadId: parentId,
+      subagents: [],
+      shells: [
+        childShell("done-old", { createdAt: at("2026-06-20T00:00:01.000Z") }),
+        childShell("done-new", { createdAt: at("2026-06-20T00:00:05.000Z") }),
+        childShell("working", {
+          createdAt: at("2026-06-20T00:00:02.000Z"),
+          activityRunStatus: "running",
+        }),
+      ],
+    });
+
+    expect(rows.map((row) => [row.childThreadId, row.state])).toEqual([
+      ["working", "active"],
+      ["done-new", "done"],
+      ["done-old", "done"],
+    ]);
+  });
+
+  it("reads a finished sub agent that was prompted again as working", () => {
+    const rows = deriveThreadSubagentRows({
+      threadId: parentId,
+      subagents: [
+        subagent({
+          id: "task",
+          childThreadId: ThreadId.make("child"),
+          status: "completed",
+        }),
+      ],
+      shells: [childShell("child", { activityRunStatus: "running" })],
+    });
+
+    expect(rows.map((row) => row.state)).toEqual(["active"]);
+  });
+
+  it("separates failed and stopped sub agents from finished ones", () => {
+    const rows = deriveThreadSubagentRows({
+      threadId: parentId,
+      subagents: [],
+      shells: [
+        childShell("failed", { status: "failed" }),
+        childShell("cancelled", { status: "cancelled" }),
+        childShell("completed", { status: "completed" }),
+      ],
+    });
+
+    expect(rows.map((row) => row.state).toSorted()).toEqual(["done", "failed", "stopped"]);
+  });
+
+  it("ignores forks, other threads' children and deleted children", () => {
+    const rows = deriveThreadSubagentRows({
+      threadId: parentId,
+      subagents: [],
+      shells: [
+        childShell("fork", {
+          lineage: {
+            parentThreadId: parentId,
+            relationshipToParent: "fork",
+            rootThreadId: parentId,
+          },
+        }),
+        childShell("other", {
+          lineage: {
+            parentThreadId: ThreadId.make("thread-2"),
+            relationshipToParent: "subagent",
+            rootThreadId: parentId,
+          },
+        }),
+        childShell("deleted", { deletedAt: at("2026-06-20T00:00:09.000Z") }),
+        childShell("kept"),
+      ],
+    });
+
+    expect(rows.map((row) => row.key)).toEqual(["kept"]);
+  });
+
+  it("lists a native sub agent that has no child thread, without a thread to open", () => {
+    const rows = deriveThreadSubagentRows({
+      threadId: parentId,
+      subagents: [
+        subagent({
+          id: "native",
+          origin: "provider_native",
+          childThreadId: null,
+          title: null,
+          prompt: "Audit the retry logic in the sync client. Report any races.",
+          status: "running",
+        }),
+      ],
+      shells: [],
+    });
+
+    expect(rows).toEqual([
+      {
+        key: "native",
+        childThreadId: null,
+        label: "Audit the retry logic in the sync client",
+        state: "active",
+      },
+    ]);
+  });
+
+  it("does not offer to open a child whose shell is not loaded", () => {
+    const rows = deriveThreadSubagentRows({
+      threadId: parentId,
+      subagents: [subagent({ id: "task", childThreadId: ThreadId.make("unsynced") })],
+      shells: [],
+    });
+
+    expect(rows.map((row) => [row.key, row.childThreadId])).toEqual([["unsynced", null]]);
+  });
+
+  it.each([
+    ["Subagent: Review the auth flow", "Review the auth flow"],
+    ["/root/code_reviewer", "Code Reviewer"],
+    ["  # Fix flaky\n\nbody text", "Fix flaky"],
+    [
+      "Investigate why the websocket reconnect loop keeps spinning after sleep",
+      "Investigate why the websocket reconnect loop…",
+    ],
+    ["", "Sub agent"],
+  ])("labels %j as %j", (title, label) => {
+    const rows = deriveThreadSubagentRows({
+      threadId: parentId,
+      subagents: [],
+      shells: [childShell("child", { title })],
+    });
+
+    expect(rows[0]?.label).toBe(label);
+  });
+
+  it("falls back to the task prompt when the child has no title", () => {
+    const rows = deriveThreadSubagentRows({
+      threadId: parentId,
+      subagents: [
+        subagent({
+          id: "task",
+          childThreadId: ThreadId.make("child"),
+          title: null,
+          prompt: "Write the migration for the new index",
+        }),
+      ],
+      shells: [childShell("child", { title: "" })],
+    });
+
+    expect(rows[0]?.label).toBe("Write the migration for the new index");
   });
 });

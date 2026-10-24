@@ -31,6 +31,10 @@ const DevicePanel = lazy(() =>
   import("../device/DevicePanel").then((module) => ({ default: module.DevicePanel })),
 );
 const FilePreviewPanel = lazy(() => import("../files/FilePreviewPanel"));
+// Lazy because the panel hosts ChatView, which renders this component.
+const SubagentsPanel = lazy(() =>
+  import("./SubagentsPanel").then((module) => ({ default: module.SubagentsPanel })),
+);
 
 export type RightPanelTerminalProps = Omit<
   PersistentThreadTerminalPanelProps,
@@ -167,6 +171,12 @@ export function RightPanelSurfaceContent(props: {
     }
     case "pull-requests":
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
+    case "subagents":
+      return (
+        <Suspense fallback={null}>
+          <SubagentsPanel threadRef={threadRef} childThreadId={surface.childThreadId ?? null} />
+        </Suspense>
+      );
     case "device":
       return (
         <Suspense fallback={null}>
